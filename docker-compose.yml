@@ -9,7 +9,8 @@ services:
       FORCE_UPDATE_CW_WEBHOOK: "true"
     command: ["--host","0.0.0.0",
           "--webhook","http://translator:8000/wa/webhook",
-          "--skip-url-check"]
+          "--skip-url-check",
+          "--socket"]
     networks: [stack_appnet]
     ports:
       - "0.0.0.0:9001:8002"

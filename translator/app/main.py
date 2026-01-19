@@ -1,11 +1,12 @@
 from fastapi import FastAPI, Request
-import os, requests, json
+import os, requests, json, logging
 from collections import deque
 from datetime import datetime
 from langdetect import detect
 from openai import OpenAI
 
 app = FastAPI()
+logger = logging.getLogger("wa-translator")
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 WA_API_BASE   = os.getenv("WA_API_BASE", "http://whatsapp-bot:8002")
@@ -33,14 +34,15 @@ def translate(text: str, target: str) -> str:
     return r.choices[0].message.content.strip()
 
 def send_text(chat_id: str, text: str):
+    payload = {"args": {"to": chat_id, "content": text}}
     try:
         requests.post(
             f"{WA_API_BASE}/sendText",
-            json={"args":[chat_id, text]},
-            timeout=TIMEOUT
+            json=payload,
+            timeout=TIMEOUT,
         ).raise_for_status()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("sendText failed for %s: %s", chat_id, exc)
 
 @app.post("/wa/webhook")
 async def wa_webhook(req: Request):
