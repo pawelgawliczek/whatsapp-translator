@@ -10,7 +10,9 @@ services:
     command: ["--host","0.0.0.0",
           "--webhook","http://translator:8000/wa/webhook",
           "--skip-url-check",
-          "--socket"]
+          "--socket",
+          "--popup",
+          "--pre-auth-docs"]
     networks: [stack_appnet]
     ports:
       - "0.0.0.0:9001:8002"
@@ -25,9 +27,11 @@ services:
       OPENAI_MODEL: gpt-4o-mini
       WA_BRIDGE: OPENWA
       WA_API_BASE: http://whatsapp-bot:8002
+      OWNER_CHAT_ID: "YOUR_NUMBER@c.us"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+      - ./translator/data:/app/data
     networks: [stack_appnet]
     restart: unless-stopped
     # optional for host testing:

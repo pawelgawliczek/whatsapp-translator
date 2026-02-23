@@ -25,3 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Runtime state
+translator/data/
