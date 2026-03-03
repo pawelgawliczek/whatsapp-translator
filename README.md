@@ -17,7 +17,7 @@ WhatsApp message
 
 Translation is opt-in. Send `/translate` in any chat to activate it. The bot stays quiet everywhere else.
 
-![WhatsApp Translator in action](screenshot.png)
+<p align="center"><img src="screenshot.png" alt="WhatsApp Translator in action" width="50%" /></p>
 
 ## Setup
 
