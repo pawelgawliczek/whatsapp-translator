@@ -17,6 +17,8 @@ WhatsApp message
 
 Translation is opt-in. Send `/translate` in any chat to activate it. The bot stays quiet everywhere else.
 
+![WhatsApp Translator in action](screenshot.png)
+
 ## Setup
 
 The bot needs to run on a machine that's always on -- a VPS, a home server, anything with Docker that stays connected. It links to a WhatsApp account via WhatsApp Web (QR code scan), so you need a spare phone number or a dedicated one for the bot. Once linked, add that account to whatever group chats you want translated.
