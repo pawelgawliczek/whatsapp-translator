@@ -28,3 +28,5 @@ Thumbs.db
 
 # Runtime state
 translator/data/
+CLAUDE.md
+AGENTS.md

@@ -3,7 +3,7 @@ import os, requests, json, logging
 from pathlib import Path
 from collections import deque, defaultdict
 from datetime import datetime, timedelta
-from langdetect import detect
+from langdetect import detect, detect_langs
 from openai import OpenAI
 
 app = FastAPI()
@@ -12,7 +12,7 @@ logger = logging.getLogger("wa-translator")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 WA_API_BASE   = os.getenv("WA_API_BASE", "http://whatsapp-bot:8002")
 TIMEOUT       = float(os.getenv("HTTP_TIMEOUT", "10"))
-OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID", "YOUR_NUMBER@c.us")
+OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")
 SEEN_IDS = deque(maxlen=500)
 
 # Persistent active-chats list
@@ -67,6 +67,9 @@ FAMILY_SYS_PROMPT_WITH_CONTEXT = (
 )
 
 MEDIA_TYPES = {"image", "video", "audio", "ptt", "sticker", "document", "location", "contact", "liveLocation"}
+
+# Slavic/similar languages that langdetect confuses with Polish for short texts
+POLISH_LIKE_LANGS = {"pl", "sk", "cs", "sl", "hr", "bs"}
 
 def get_context_messages(chat_id: str, source_lang: str) -> list:
     """Get up to 10 messages from the last hour in the source language."""
@@ -141,6 +144,8 @@ async def wa_webhook(req: Request):
     chat_id  = data.get("from") or ""
     from_me  = bool(data.get("fromMe") or data.get("authorIsMe"))
 
+    logger.info("[MSG] id=%s chat=%s from_me=%s body=%r", msg_id[:20], chat_id, from_me, body[:80] if body else "")
+
     # Ignore own messages and duplicates
     if not chat_id:
         return {"ok": True}
@@ -162,10 +167,12 @@ async def wa_webhook(req: Request):
         or mimetype.startswith("audio/")
         or mimetype.startswith("application/")  # documents
     ):
+        logger.info("[DROP] media: type=%s mimetype=%s", msg_type, mimetype)
         return {"ok": True}
 
     # Nothing to translate
     if not body.strip():
+        logger.info("[DROP] empty body")
         return {"ok": True}
 
     # --- /translate command handling ---
@@ -273,6 +280,7 @@ async def wa_webhook(req: Request):
 
     # --- If chat is NOT active, forward notification to owner ---
     if chat_id not in ACTIVE_CHATS:
+        logger.warning("[DROP] chat not active: %s (active=%s)", chat_id, ACTIVE_CHATS)
         sender_jid = data.get("author") or data.get("from") or ""
         if sender_jid != OWNER_CHAT_ID and chat_id != OWNER_CHAT_ID:
             sender = data.get("notifyName") or data.get("author") or "unknown"
@@ -283,8 +291,11 @@ async def wa_webhook(req: Request):
     # --- Translation logic (only for active chats) ---
     try:
         lang = detect(body)
-    except Exception:
+    except Exception as exc:
+        logger.warning("[DROP] langdetect failed for %r: %s", body[:80], exc)
         return {"ok": True}
+
+    logger.warning("[TRANSLATE] lang=%s body=%r", lang, body[:80])
 
     sender = data.get("notifyName") or data.get("author") or "unknown"
     chat_dict = DICTIONARIES.get(chat_id, [])
@@ -297,15 +308,74 @@ async def wa_webhook(req: Request):
         # Exclude the current message from context (it's already the message to translate)
         context = [c for c in context if c[1] != body]
         translated = translate(body, "Polish", context, dictionary=chat_dict)
-    elif lang.startswith("pl"):
+    elif lang.startswith("pl") or lang in POLISH_LIKE_LANGS:
+        if lang != "pl":
+            logger.warning("[LANG-FIX] treating %s as pl for body=%r", lang, body[:80])
         context = get_context_messages(chat_id, "pl")
         context = [c for c in context if c[1] != body]
         translated = translate(body, "English", context, dictionary=chat_dict)
     else:
+        logger.warning("[DROP] unsupported lang=%s for body=%r", lang, body[:80])
         return {"ok": True}
 
     time_str = datetime.now().astimezone().strftime("%H:%M")
     formatted = f"{sender}/{time_str}: {translated}"
 
+    logger.warning("[SEND] %s → %s", chat_id, formatted[:80])
     send_text(chat_id, formatted)
     return {"ok": True}
+
+
+@app.get("/debug/chat/{chat_id}")
+def debug_chat(chat_id: str):
+    """Diagnostic endpoint: fetch recent messages from a chat via OpenWA API
+    and correlate with in-memory translation history.
+
+    Usage: GET /debug/chat/YOUR_NUMBER-1619174425@g.us
+    """
+    # Fetch recent messages from WhatsApp via OpenWA
+    wa_messages = []
+    try:
+        resp = requests.post(
+            f"{WA_API_BASE}/getChat",
+            json={"args": {"contactId": f"{chat_id}"}},
+            timeout=TIMEOUT,
+        )
+        if resp.ok:
+            chat_data = resp.json().get("response", {})
+            wa_messages = [
+                {
+                    "id": str(m.get("id", "")),
+                    "body": (m.get("body") or "")[:120],
+                    "from": m.get("from", ""),
+                    "author": m.get("author", ""),
+                    "sender": m.get("notifyName", ""),
+                    "fromMe": m.get("fromMe", False),
+                    "t": m.get("t", 0),
+                    "type": m.get("type", ""),
+                }
+                for m in chat_data.get("msgs", [])
+            ]
+    except Exception as exc:
+        wa_messages = [{"error": str(exc)}]
+
+    # In-memory translation history
+    history = []
+    for ts, sender, body, lang in MESSAGE_HISTORY.get(chat_id, []):
+        history.append({
+            "time": ts.isoformat(),
+            "sender": sender,
+            "body": body[:120],
+            "detected_lang": lang,
+        })
+
+    return {
+        "chat_id": chat_id,
+        "is_active": chat_id in ACTIVE_CHATS,
+        "active_chats": sorted(ACTIVE_CHATS),
+        "dictionary_entries": len(DICTIONARIES.get(chat_id, [])),
+        "translation_history_count": len(history),
+        "translation_history": history[-20:],
+        "wa_recent_messages": wa_messages[-20:],
+        "seen_ids_count": len(SEEN_IDS),
+    }

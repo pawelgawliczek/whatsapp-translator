@@ -27,7 +27,7 @@ services:
       OPENAI_MODEL: gpt-4o-mini
       WA_BRIDGE: OPENWA
       WA_API_BASE: http://whatsapp-bot:8002
-      OWNER_CHAT_ID: "YOUR_NUMBER@c.us"
+      OWNER_CHAT_ID: ${OWNER_CHAT_ID}
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
