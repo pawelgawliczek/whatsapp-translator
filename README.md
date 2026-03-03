@@ -104,7 +104,9 @@ Environment variables in `docker-compose.yml`:
 
 ## Adapting for other languages
 
-The bot currently translates between Polish and English. To change the language pair, edit the detection and routing logic in `translator/app/main.py`:
+Right now the bot only handles Polish and English. Adding other languages is straightforward though -- it's just a few lines in the routing logic. Point [Claude Code](https://claude.ai/code) at the repo and tell it what languages you need. It'll sort it out.
+
+To do it manually, edit the detection and routing in `translator/app/main.py`:
 
 ```python
 if lang.startswith("en"):
