@@ -171,7 +171,7 @@ Message content goes to OpenAI for translation. The bot ignores its own messages
 
 ## Blog post
 
-I wrote about the background and how this came together: [How I built a WhatsApp translator so my family could actually talk to each other](https://pawelgawliczek.cloud/blog/family-whatsapp-ai-translator)
+I wrote about the background and how this came together: [How I built a WhatsApp translator so my family could actually talk to each other](https://pawelgawliczek.cloud/blog/family-chat-translator)
 
 ## License
 
