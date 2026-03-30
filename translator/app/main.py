@@ -90,14 +90,19 @@ def get_context_messages(chat_id: str, source_lang: str) -> list:
     # Reverse to chronological order
     return list(reversed(context))
 
-def build_dictionary_prompt(dictionary: list) -> str:
+def build_dictionary_prompt(dictionary: list, text: str) -> str:
     if not dictionary:
         return ""
-    lines = "\n".join(f"- {a} <-> {b}" for a, b in dictionary)
+    # Only include dictionary entries where a source word actually appears in the text
+    text_lower = text.lower()
+    relevant = [(a, b) for a, b in dictionary if a.lower() in text_lower or b.lower() in text_lower]
+    if not relevant:
+        return ""
+    lines = "\n".join(f"- {a} <-> {b}" for a, b in relevant)
     return (
-        "\n\nYou MUST use the following dictionary for specific word translations. "
-        "These are bidirectional pairs. When you encounter any of these words, "
-        "always translate them using the paired word:\n" + lines
+        "\n\nThe following dictionary defines translations for specific words. "
+        "ONLY apply these when the exact word (or a close inflected form of it) appears in the message. "
+        "Do NOT use these translations for other similar or related words:\n" + lines
     )
 
 def translate(text: str, target: str, context: list = None, dictionary: list = None) -> str:
@@ -109,7 +114,7 @@ def translate(text: str, target: str, context: list = None, dictionary: list = N
     else:
         system_prompt = FAMILY_SYS_PROMPT.format(target=target)
 
-    system_prompt += build_dictionary_prompt(dictionary)
+    system_prompt += build_dictionary_prompt(dictionary, text)
 
     r = client.chat.completions.create(
         model=OPENAI_MODEL,
