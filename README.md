@@ -61,6 +61,8 @@ docker compose up -d
 
 This starts two containers: `whatsapp-bot` (the OpenWA bridge, exposed on port 9001) and `wa-translator` (the FastAPI translation service, internal only).
 
+The OpenWA service builds from `openwa.Dockerfile` instead of using the upstream image directly. That image installs `procps`, fixes the pre-auth QR popup when OpenWA emits QR image data without a `data:` prefix, and relaxes an OpenWA initializer wait that can fail against newer WhatsApp Web builds. The compose file also overrides the WhatsApp Web user agent; without that, WhatsApp may show an "update Chrome" screen even when the container has a modern Chrome binary.
+
 ### 4. Link your WhatsApp
 
 Open `http://your-server:9001` in a browser. You'll see a QR code. Scan it with WhatsApp on your phone (Settings > Linked Devices > Link a Device).
@@ -148,6 +150,13 @@ If there are no `[MSG]` lines at all, the OpenWA bridge may have stopped sending
 docker compose restart whatsapp-bot
 ```
 
+Confirm the bridge is connected and can see the active chat:
+
+```bash
+docker exec whatsapp-bot sh -lc 'curl -sS -X POST http://127.0.0.1:8002/getConnectionState -H "Content-Type: application/json" -d "{}"'
+docker exec whatsapp-bot sh -lc 'curl -sS -X POST http://127.0.0.1:8002/getAllChats -H "Content-Type: application/json" -d "{}" | head -c 2000'
+```
+
 **WhatsApp session expired**
 
 If the bot stops working after a long time, the session may need re-linking:
@@ -158,6 +167,33 @@ docker compose restart whatsapp-bot
 ```
 
 Then scan the QR code again at `http://your-server:9001`.
+
+**QR page shows text or a loading graphic instead of a QR**
+
+Rebuild the custom OpenWA image and start from a clean OpenWA session:
+
+```bash
+docker compose build whatsapp-bot
+docker compose stop whatsapp-bot
+mv openwa-sessions "openwa-sessions.broken.$(date +%Y%m%d%H%M%S)"
+mkdir -p openwa-sessions openwa-config
+chown -R 999:999 openwa-sessions openwa-config
+docker compose up -d whatsapp-bot
+docker logs --since 2m whatsapp-bot
+```
+
+Look for `First QR`, `QR code scanned`, `Client is ready`, and `@OPEN-WA ready`. Keep the linked session alive for at least 5 minutes before restarting.
+
+**Hostinger production notes**
+
+On the Hostinger server, the app lives under `/opt/stack/whatsapp-bot`. SSH with:
+
+```bash
+ssh hostinger
+cd /opt/stack/whatsapp-bot
+```
+
+The OpenWA auth page is exposed through Caddy at `https://wa.pawelgawliczek.cloud` and protected with basic auth. Caddy's config is in `/opt/caddy/Caddyfile`; reload it after changes with `docker exec caddy-caddy-1 caddy reload --config /etc/caddy/Caddyfile`.
 
 **Wrong language detected**
 
