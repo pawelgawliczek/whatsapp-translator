@@ -1,12 +1,16 @@
 services:
   whatsapp-bot:
-    image: openwa/wa-automate:latest
+    build:
+      context: .
+      dockerfile: openwa.Dockerfile
+    image: whatsapp-bot-openwa
     container_name: whatsapp-bot
     environment:
       WEBHOOK_URL: http://translator:8000/wa/webhook
       WEBHOOK_ENABLED: "true"
       WEBHOOK_ALLOWED_EVENTS: "all"
       FORCE_UPDATE_CW_WEBHOOK: "true"
+      WA_CUSTOM_USER_AGENT: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
     command: ["--host","0.0.0.0",
           "--webhook","http://translator:8000/wa/webhook",
           "--skip-url-check",
@@ -16,6 +20,9 @@ services:
     networks: [stack_appnet]
     ports:
       - "0.0.0.0:9001:8002"
+    volumes:
+      - ./openwa-sessions:/sessions
+      - ./openwa-config:/config
     restart: unless-stopped
 
   translator:
