@@ -105,6 +105,9 @@ Environment variables in `docker-compose.yml`:
 | `OWNER_CHAT_ID` | (required) | Your WhatsApp number as `number@c.us` |
 | `WA_API_BASE` | `http://whatsapp-bot:8002` | OpenWA API URL (change if using a different bridge) |
 | `TZ` | `Africa/Cairo` | Timezone for message timestamps |
+| `POLL_ACTIVE_CHATS` | `true` | Poll active chats as a fallback when OpenWA misses a webhook |
+| `POLL_INTERVAL_SECONDS` | `15` | Delay between fallback polling attempts |
+| `POLL_STARTUP_REPLAY_SECONDS` | `600` | Replay recent incoming messages after a translator restart |
 
 ## Adapting for other languages
 
@@ -150,12 +153,27 @@ If there are no `[MSG]` lines at all, the OpenWA bridge may have stopped sending
 docker compose restart whatsapp-bot
 ```
 
+Wait for `Client is ready`, `Patches Installed`, and `@OPEN-WA ready` in the
+OpenWA logs. OpenWA downloads compatibility patches during startup, so a
+restart can recover failures caused by a WhatsApp Web update even when the
+container itself was still running.
+
 Confirm the bridge is connected and can see the active chat:
 
 ```bash
 docker exec whatsapp-bot sh -lc 'curl -sS -X POST http://127.0.0.1:8002/getConnectionState -H "Content-Type: application/json" -d "{}"'
 docker exec whatsapp-bot sh -lc 'curl -sS -X POST http://127.0.0.1:8002/getAllChats -H "Content-Type: application/json" -d "{}" | head -c 2000'
 ```
+
+The translator also polls active chats as a webhook fallback. On startup it
+replays recent incoming messages from the previous 10 minutes by default, so
+messages received while the translator was rebuilding or restarting are not
+silently skipped. Sent messages are excluded to prevent translation loops.
+
+Polled group messages may contain WhatsApp's internal `@lid` author instead of
+`notifyName`. The translator resolves that identifier through OpenWA's contact
+API and caches the display name. If resolution fails, it uses `Someone` rather
+than exposing the raw identifier.
 
 **WhatsApp session expired**
 
@@ -198,6 +216,11 @@ The OpenWA auth page is exposed through Caddy at `https://wa.pawelgawliczek.clou
 **Wrong language detected**
 
 `langdetect` can misidentify short messages. The bot already handles common Polish/Slavic confusion, but very short texts (1-2 words) may get the wrong language. Longer messages are detected reliably.
+
+The translator includes English-word hints for common short-message false
+positives, including time expressions such as `23 hours 43 minutes`. Extend
+`ENGLISH_HINT_WORDS` and `ENGLISH_LIKE_FALSE_POSITIVES` if another recurring
+short phrase is classified as an unsupported language.
 
 ## Security
 
