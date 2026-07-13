@@ -53,6 +53,22 @@ def save_dictionaries():
 
 DICTIONARIES = load_dictionaries()
 
+# Persistent per-sender gender preference (used for grammatical gender agreement,
+# e.g. Polish past-tense verb endings), keyed by WhatsApp sender JID
+GENDERS_FILE = DATA_DIR / "genders.json"
+
+def load_genders() -> dict:
+    try:
+        return json.loads(GENDERS_FILE.read_text())
+    except Exception:
+        return {}
+
+def save_genders():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    GENDERS_FILE.write_text(json.dumps(GENDERS, indent=2))
+
+GENDERS = load_genders()
+
 # Message history per chat: {chat_id: deque of (timestamp, sender, body, lang)}
 MESSAGE_HISTORY = defaultdict(lambda: deque(maxlen=50))
 CONTEXT_MAX_AGE = timedelta(hours=1)
@@ -165,7 +181,7 @@ def build_dictionary_prompt(dictionary: list, text: str) -> str:
         "Do NOT use these translations for other similar or related words:\n" + lines
     )
 
-def translate(text: str, target: str, context: list = None, dictionary: list = None) -> str:
+def translate(text: str, target: str, context: list = None, dictionary: list = None, speaker_gender: str = None) -> str:
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     if context and len(context) > 0:
@@ -175,6 +191,13 @@ def translate(text: str, target: str, context: list = None, dictionary: list = N
         system_prompt = FAMILY_SYS_PROMPT.format(target=target)
 
     system_prompt += build_dictionary_prompt(dictionary, text)
+
+    if speaker_gender in {"male", "female"}:
+        system_prompt += (
+            f"\n\nThe speaker of this message is {speaker_gender}. "
+            f"Use the correct grammatical gender agreement for a {speaker_gender} speaker "
+            "(e.g. verb and adjective endings) in the translation."
+        )
 
     r = client.chat.completions.create(
         model=OPENAI_MODEL,
@@ -331,6 +354,7 @@ async def wa_webhook(req: Request):
     from_me  = bool(data.get("fromMe") or data.get("authorIsMe"))
     msg_type = (data.get("type") or "").lower()
     sender = resolve_sender_name(data)
+    sender_id = data.get("author") or data.get("from") or ""
     meta = message_meta(data, msg_id, chat_id, sender, body)
 
     log_message_decision(logging.WARNING, "received", **meta)
@@ -390,6 +414,23 @@ async def wa_webhook(req: Request):
         else:
             send_text(chat_id, "Translation is not active in this chat.")
             log_message_decision(logging.WARNING, "command_translate_not_active", **meta)
+        return {"ok": True}
+
+    # --- /gender command handling ---
+    if body_lower.startswith("/gender"):
+        args = body.strip()[len("/gender"):].strip().lower()
+        if args in {"male", "female"}:
+            GENDERS[sender_id] = args
+            save_genders()
+            send_text(chat_id, f"Got it -- I'll translate your messages using {args} grammatical gender.")
+            log_message_decision(logging.WARNING, "command_gender_set", gender=args, **meta)
+        elif args == "unset":
+            if GENDERS.pop(sender_id, None) is not None:
+                save_genders()
+            send_text(chat_id, "Gender preference cleared.")
+            log_message_decision(logging.WARNING, "command_gender_unset", **meta)
+        else:
+            send_text(chat_id, "Usage: /gender male | /gender female | /gender unset")
         return {"ok": True}
 
     # --- /dictionary command handling ---
@@ -478,8 +519,7 @@ async def wa_webhook(req: Request):
     # --- If chat is NOT active, forward notification to owner ---
     if chat_id not in ACTIVE_CHATS:
         log_message_decision(logging.WARNING, "drop_chat_not_active", active_chats=sorted(ACTIVE_CHATS), **meta)
-        sender_jid = data.get("author") or data.get("from") or ""
-        if sender_jid != OWNER_CHAT_ID and chat_id != OWNER_CHAT_ID:
+        if sender_id != OWNER_CHAT_ID and chat_id != OWNER_CHAT_ID:
             chat_name = data.get("chat", {}).get("name") or data.get("chatName") or chat_id
             send_text(OWNER_CHAT_ID, f"[Message from {sender} in {chat_name}]\n{body}")
         return {"ok": True}
@@ -494,6 +534,7 @@ async def wa_webhook(req: Request):
     log_message_decision(logging.WARNING, "translate_attempt", detected_lang=lang, **meta)
 
     chat_dict = DICTIONARIES.get(chat_id, [])
+    speaker_gender = GENDERS.get(sender_id)
 
     # Store message in history (before translation, so it can be used as context for future messages)
     MESSAGE_HISTORY[chat_id].append((datetime.now(), sender, body, lang))
@@ -503,13 +544,13 @@ async def wa_webhook(req: Request):
             context = get_context_messages(chat_id, "en")
             # Exclude the current message from context (it's already the message to translate)
             context = [c for c in context if c[1] != body]
-            translated = translate(body, "Polish", context, dictionary=chat_dict)
+            translated = translate(body, "Polish", context, dictionary=chat_dict, speaker_gender=speaker_gender)
         elif lang.startswith("pl") or lang in POLISH_LIKE_LANGS:
             if lang != "pl":
                 logger.warning("[LANG-FIX] treating %s as pl for body=%r", lang, body[:80])
             context = get_context_messages(chat_id, "pl")
             context = [c for c in context if c[1] != body]
-            translated = translate(body, "English", context, dictionary=chat_dict)
+            translated = translate(body, "English", context, dictionary=chat_dict, speaker_gender=speaker_gender)
         else:
             log_message_decision(logging.WARNING, "drop_unsupported_lang", detected_lang=lang, **meta)
             return {"ok": True}

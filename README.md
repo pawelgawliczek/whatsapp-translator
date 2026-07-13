@@ -83,6 +83,12 @@ Add the bot's WhatsApp account to whatever group chats you want translated. Then
 | `/dictionary list` | Show all custom pairs for this chat |
 | `/dictionary remove word1, word2` | Remove a specific pair |
 | `/dictionary remove word` | Remove all pairs containing that word |
+| `/gender male` / `/gender female` | Tell the bot your own gender, for correct grammatical gender agreement |
+| `/gender unset` | Clear your gender preference |
+
+### Gender agreement
+
+Languages like Polish mark the speaker's gender on past-tense verbs and adjectives (e.g. "zrobiłem" vs "zrobiłam" for "I did"). WhatsApp doesn't expose a contact's gender, so the bot has no way to know it automatically -- by default it guesses male. Send `/gender female` or `/gender male` once (from your own number, in any active chat) and the bot will remember it per WhatsApp ID and use it for all future translations of your messages. Send `/gender unset` to clear it. Preferences are stored in `translator/data/genders.json`.
 
 ### Custom dictionaries
 
@@ -128,10 +134,11 @@ The `POLISH_LIKE_LANGS` set handles cases where `langdetect` confuses short Poli
 
 ## Persistent state
 
-The bot stores two files in `translator/data/` (mounted as a Docker volume):
+The bot stores these files in `translator/data/` (mounted as a Docker volume):
 
 - `active_chats.json` -- which chats have translation enabled
 - `dictionaries.json` -- per-chat custom word pairs
+- `genders.json` -- per-sender gender preference, for grammatical gender agreement
 
 These survive container restarts. Message history (used for translation context) is in-memory only and is lost on restart.
 
